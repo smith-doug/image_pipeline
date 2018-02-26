@@ -43,6 +43,11 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <dynamic_reconfigure/server.h>
 #include <boost/assign.hpp>
+
+#include <std_msgs/Int32.h>
+#include <boost/filesystem.hpp>
+#include <mutex>
+
 using namespace boost::assign;
 
 namespace image_publisher {
@@ -66,6 +71,8 @@ class ImagePublisherNodelet : public nodelet::Nodelet
   int flip_value_;
   sensor_msgs::CameraInfo camera_info_;
   
+  std::mutex mut_work_;
+  int image_index_;
 
   void reconfigureCallback(image_publisher::ImagePublisherConfig &new_config, uint32_t level)
   {
@@ -134,59 +141,77 @@ public:
 
     nh_.param("filename", filename_, std::string(""));
     NODELET_INFO("File name for publishing image is : %s", filename_.c_str());
-    try {
-      image_ = cv::imread(filename_, CV_LOAD_IMAGE_COLOR);
-      if ( image_.empty() ) { // if filename is motion file or device file
-        try {  // if filename is number
-          int num = boost::lexical_cast<int>(filename_);//num is 1234798797
-          cap_.open(num);
-        } catch(boost::bad_lexical_cast &) { // if file name is string
-          cap_.open(filename_);
-        }
-        CV_Assert(cap_.isOpened());
-        cap_.read(image_);
-        cap_.set(CV_CAP_PROP_POS_FRAMES, 0);
-      }
-      CV_Assert(!image_.empty());
-    }
-    catch (cv::Exception &e)
-    {
-      NODELET_ERROR("Failed to load image (%s): %s %s %s %i", filename_.c_str(), e.err.c_str(), e.func.c_str(), e.file.c_str(), e.line);
-    }
-
-    bool flip_horizontal;
-    nh_.param("flip_horizontal", flip_horizontal, false);
-    NODELET_INFO("Flip horizontal image is : %s",  ((flip_horizontal)?"true":"false"));
-
-    bool flip_vertical;
-    nh_.param("flip_vertical", flip_vertical, false);
-    NODELET_INFO("Flip flip_vertical image is : %s", ((flip_vertical)?"true":"false"));
-
-    // From http://docs.opencv.org/modules/core/doc/operations_on_arrays.html#void flip(InputArray src, OutputArray dst, int flipCode)
-    // FLIP_HORIZONTAL == 1, FLIP_VERTICAL == 0 or FLIP_BOTH == -1
-    flip_image_ = true;
-    if (flip_horizontal && flip_vertical)
-      flip_value_ = 0; // flip both, horizontal and vertical
-    else if (flip_horizontal)
-      flip_value_ = 1;
-    else if (flip_vertical)
-      flip_value_ = -1;
-    else
-      flip_image_ = false;
-
-    camera_info_.width = image_.cols;
-    camera_info_.height = image_.rows;
-    camera_info_.distortion_model = "plumb_bob";
-    camera_info_.D = list_of(0)(0)(0)(0)(0).convert_to_container<std::vector<double> >();
-    camera_info_.K = list_of(1)(0)(camera_info_.width/2)(0)(1)(camera_info_.height/2)(0)(0)(1);
-    camera_info_.R = list_of(1)(0)(0)(0)(1)(0)(0)(0)(1);
-    camera_info_.P = list_of(1)(0)(camera_info_.width/2)(0)(0)(1)(camera_info_.height/2)(0)(0)(0)(1)(0);
+    openFile(filename_);
 
     timer_ = nh_.createTimer(ros::Duration(1), &ImagePublisherNodelet::do_work, this);
 
     dynamic_reconfigure::Server<image_publisher::ImagePublisherConfig>::CallbackType f =
       boost::bind(&ImagePublisherNodelet::reconfigureCallback, this, _1, _2);
     srv.setCallback(f);
+  }
+  void openFile(const std::string &filename)
+  {
+    std::lock_guard<std::mutex> guard(mut_work_);
+    try
+    {
+      auto image = cv::imread(filename, CV_LOAD_IMAGE_COLOR);
+
+      if (image.empty())
+      {  // if filename is motion file or device file
+        try
+        {                                                // if filename is number
+          int num = boost::lexical_cast<int>(filename);  // num is 1234798797
+          cap_.open(num);
+        }
+        catch (boost::bad_lexical_cast &)
+        {  // if file name is string
+          cap_.open(filename);
+        }
+        CV_Assert(cap_.isOpened());
+        cap_.read(image);
+        cap_.set(CV_CAP_PROP_POS_FRAMES, 0);
+      }
+      CV_Assert(!image.empty());
+      image_ = std::move(image);
+      filename_ = filename;
+    }
+    catch (cv::Exception &e)
+    {
+      NODELET_ERROR("Failed to load image (%s): %s %s %s %i", filename_.c_str(), e.err.c_str(), e.func.c_str(),
+                    e.file.c_str(), e.line);
+      ros::param::set("~filename", filename_);
+      return;
+    }
+
+    bool flip_horizontal;
+    nh_.param("flip_horizontal", flip_horizontal, false);
+    NODELET_INFO("Flip horizontal image is : %s", ((flip_horizontal) ? "true" : "false"));
+
+    bool flip_vertical;
+    nh_.param("flip_vertical", flip_vertical, false);
+    NODELET_INFO("Flip flip_vertical image is : %s", ((flip_vertical) ? "true" : "false"));
+
+    // From
+    // http://docs.opencv.org/modules/core/doc/operations_on_arrays.html#void
+    // flip(InputArray src, OutputArray dst, int flipCode)
+    // FLIP_HORIZONTAL == 1, FLIP_VERTICAL == 0 or FLIP_BOTH == -1
+    flip_image_ = true;
+    if (flip_horizontal && flip_vertical)
+     flip_value_ = 0;  // flip both, horizontal and vertical
+    else if (flip_horizontal)
+     flip_value_ = 1;
+    else if (flip_vertical)
+     flip_value_ = -1;
+    else
+     flip_image_ = false;
+
+    camera_info_.width = image_.cols;
+    camera_info_.height = image_.rows;
+    camera_info_.distortion_model = "plumb_bob";
+    camera_info_.D = list_of(0)(0)(0)(0)(0).convert_to_container<std::vector<double> >();
+    camera_info_.K = list_of(1)(0)(camera_info_.width / 2)(0)(1)(camera_info_.height / 2)(0)(0)(1);
+    camera_info_.R = list_of(1)(0)(0)(0)(1)(0)(0)(0)(1);
+    camera_info_.P = list_of(1)(0)(camera_info_.width / 2)(0)(0)(1)(camera_info_.height / 2)(0)(0)(0)(1)(0);
   }
 };
 }
