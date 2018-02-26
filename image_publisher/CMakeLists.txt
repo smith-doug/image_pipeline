@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 2.8)
 project(image_publisher)
 
+add_definitions(-std=c++11) 
+
 find_package(catkin REQUIRED COMPONENTS cv_bridge dynamic_reconfigure camera_info_manager sensor_msgs image_transport nodelet roscpp)
 
 # generate the dynamic_reconfigure config file
