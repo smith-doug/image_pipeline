@@ -4,11 +4,11 @@
 *  Copyright (c) 2014, JSK Lab.
 *                2008, Willow Garage, Inc.
 *  All rights reserved.
-* 
+*
 *  Redistribution and use in source and binary forms, with or without
 *  modification, are permitted provided that the following conditions
 *  are met:
-* 
+*
 *   * Redistributions of source code must retain the above copyright
 *     notice, this list of conditions and the following disclaimer.
 *   * Redistributions in binary form must reproduce the above
@@ -18,7 +18,7 @@
 *   * Neither the name of the Willow Garage nor the names of its
 *     contributors may be used to endorse or promote products derived
 *     from this software without specific prior written permission.
-* 
+*
 *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 *  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
@@ -33,16 +33,16 @@
 *  POSSIBILITY OF SUCH DAMAGE.
 *********************************************************************/
 
-#include <ros/ros.h>
-#include <nodelet/nodelet.h>
+#include <camera_info_manager/camera_info_manager.h>
 #include <cv_bridge/cv_bridge.h>
+#include <dynamic_reconfigure/server.h>
 #include <image_publisher/ImagePublisherConfig.h>
 #include <image_transport/image_transport.h>
+#include <nodelet/nodelet.h>
+#include <ros/ros.h>
 #include <sensor_msgs/CameraInfo.h>
-#include <camera_info_manager/camera_info_manager.h>
-#include <opencv2/highgui/highgui.hpp>
-#include <dynamic_reconfigure/server.h>
 #include <boost/assign.hpp>
+#include <opencv2/highgui/highgui.hpp>
 
 #include <std_msgs/Int32.h>
 #include <boost/filesystem.hpp>
@@ -50,7 +50,8 @@
 
 using namespace boost::assign;
 
-namespace image_publisher {
+namespace image_publisher
+{
 class ImagePublisherNodelet : public nodelet::Nodelet
 {
   dynamic_reconfigure::Server<image_publisher::ImagePublisherConfig> srv;
@@ -70,7 +71,7 @@ class ImagePublisherNodelet : public nodelet::Nodelet
   bool flip_image_;
   int flip_value_;
   sensor_msgs::CameraInfo camera_info_;
-  
+
   std::mutex mut_work_;
   int image_index_;
 
@@ -78,29 +79,34 @@ class ImagePublisherNodelet : public nodelet::Nodelet
   {
     frame_id_ = new_config.frame_id;
 
-    timer_ = nh_.createTimer(ros::Duration(1.0/new_config.publish_rate), &ImagePublisherNodelet::do_work, this);
+    timer_ = nh_.createTimer(ros::Duration(1.0 / new_config.publish_rate), &ImagePublisherNodelet::do_work, this);
 
     camera_info_manager::CameraInfoManager c(nh_);
-    if ( !new_config.camera_info_url.empty() ) {
-      try {
+    if (!new_config.camera_info_url.empty())
+    {
+      try
+      {
         c.validateURL(new_config.camera_info_url);
         c.loadCameraInfo(new_config.camera_info_url);
         camera_info_ = c.getCameraInfo();
-      } catch(cv::Exception &e) {
-        NODELET_ERROR("camera calibration failed to load: %s %s %s %i", e.err.c_str(), e.func.c_str(), e.file.c_str(), e.line);
+      }
+      catch (cv::Exception &e)
+      {
+        NODELET_ERROR("camera calibration failed to load: %s %s %s %i", e.err.c_str(), e.func.c_str(), e.file.c_str(),
+                      e.line);
       }
     }
-    
-
   }
 
-  void do_work(const ros::TimerEvent& event)
+  void do_work(const ros::TimerEvent &event)
   {
     // Transform the image.
     try
     {
-      if ( cap_.isOpened() ) {
-        if ( ! cap_.read(image_) ) {
+      if (cap_.isOpened())
+      {
+        if (!cap_.read(image_))
+        {
           cap_.set(CV_CAP_PROP_POS_FRAMES, 0);
         }
       }
@@ -121,12 +127,12 @@ class ImagePublisherNodelet : public nodelet::Nodelet
     }
   }
 
-  void connectCb(const image_transport::SingleSubscriberPublisher& ssp)
+  void connectCb(const image_transport::SingleSubscriberPublisher &ssp)
   {
     subscriber_count_++;
   }
 
-  void disconnectCb(const image_transport::SingleSubscriberPublisher&)
+  void disconnectCb(const image_transport::SingleSubscriberPublisher &)
   {
     subscriber_count_--;
   }
@@ -146,9 +152,10 @@ public:
     timer_ = nh_.createTimer(ros::Duration(1), &ImagePublisherNodelet::do_work, this);
 
     dynamic_reconfigure::Server<image_publisher::ImagePublisherConfig>::CallbackType f =
-      boost::bind(&ImagePublisherNodelet::reconfigureCallback, this, _1, _2);
+        boost::bind(&ImagePublisherNodelet::reconfigureCallback, this, _1, _2);
     srv.setCallback(f);
   }
+
   void openFile(const std::string &filename)
   {
     std::lock_guard<std::mutex> guard(mut_work_);
@@ -197,13 +204,13 @@ public:
     // FLIP_HORIZONTAL == 1, FLIP_VERTICAL == 0 or FLIP_BOTH == -1
     flip_image_ = true;
     if (flip_horizontal && flip_vertical)
-     flip_value_ = 0;  // flip both, horizontal and vertical
+      flip_value_ = 0;  // flip both, horizontal and vertical
     else if (flip_horizontal)
-     flip_value_ = 1;
+      flip_value_ = 1;
     else if (flip_vertical)
-     flip_value_ = -1;
+      flip_value_ = -1;
     else
-     flip_image_ = false;
+      flip_image_ = false;
 
     camera_info_.width = image_.cols;
     camera_info_.height = image_.rows;
