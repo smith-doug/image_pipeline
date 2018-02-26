@@ -72,6 +72,8 @@ class ImagePublisherNodelet : public nodelet::Nodelet
   int flip_value_;
   sensor_msgs::CameraInfo camera_info_;
 
+  std::vector<std::string> files_;
+  ros::Subscriber sub_change_image_;
   std::mutex mut_work_;
   int image_index_;
 
@@ -100,6 +102,7 @@ class ImagePublisherNodelet : public nodelet::Nodelet
 
   void do_work(const ros::TimerEvent &event)
   {
+    std::lock_guard<std::mutex> guard(mut_work_);
     // Transform the image.
     try
     {
@@ -147,13 +150,17 @@ public:
 
     nh_.param("filename", filename_, std::string(""));
     NODELET_INFO("File name for publishing image is : %s", filename_.c_str());
+
     openFile(filename_);
+    image_index_ = listFiles(filename_);
 
     timer_ = nh_.createTimer(ros::Duration(1), &ImagePublisherNodelet::do_work, this);
 
     dynamic_reconfigure::Server<image_publisher::ImagePublisherConfig>::CallbackType f =
         boost::bind(&ImagePublisherNodelet::reconfigureCallback, this, _1, _2);
     srv.setCallback(f);
+
+    sub_change_image_ = nh_.subscribe("next_image", 10, &ImagePublisherNodelet::subNextImageCb, this);
   }
 
   void openFile(const std::string &filename)
@@ -219,6 +226,42 @@ public:
     camera_info_.K = list_of(1)(0)(camera_info_.width / 2)(0)(1)(camera_info_.height / 2)(0)(0)(1);
     camera_info_.R = list_of(1)(0)(0)(0)(1)(0)(0)(0)(1);
     camera_info_.P = list_of(1)(0)(camera_info_.width / 2)(0)(0)(1)(camera_info_.height / 2)(0)(0)(0)(1)(0);
+  }
+
+  int listFiles(const std::string &path)
+  {
+    boost::filesystem::path p(path);
+    boost::filesystem::path dir(path);
+
+    if (!boost::filesystem::is_directory(p))
+      dir = p.parent_path();
+
+    std::transform(boost::filesystem::directory_iterator(dir), boost::filesystem::directory_iterator(),
+                   std::back_inserter(files_),
+                   [](const boost::filesystem::directory_entry &entry) { /*return entry.path().leaf().string();*/
+                                                                         return entry.path().string();
+                   });
+
+    std::sort(files_.begin(), files_.end());
+
+    auto idx = std::find(files_.begin(), files_.end(), path) - files_.begin();
+
+    if (idx < files_.size())
+      return idx;
+    else
+      return -1;
+  }
+
+  void subNextImageCb(const std_msgs::Int32ConstPtr &msg)
+  {
+    timer_.stop();
+    image_index_++;
+    if (image_index_ >= files_.size())
+      image_index_ = 0;
+
+    openFile(files_[image_index_]);
+
+    timer_.start();
   }
 };
 }
