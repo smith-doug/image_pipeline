@@ -254,10 +254,22 @@ public:
 
   void subNextImageCb(const std_msgs::Int32ConstPtr &msg)
   {
+    if (files_.empty())
+      return;
+
     timer_.stop();
-    image_index_++;
-    if (image_index_ >= files_.size())
+
+    if (msg->data >= 0)
+      image_index_++;
+    else
+      image_index_--;
+
+    int num_entries = files_.size();
+
+    if (image_index_ >= (int)files_.size())
       image_index_ = 0;
+    else if (image_index_ < 0)
+      image_index_ = files_.size() - 1;
 
     openFile(files_[image_index_]);
 
