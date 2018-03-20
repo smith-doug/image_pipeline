@@ -272,6 +272,8 @@ public:
       image_index_ = files_.size() - 1;
 
     openFile(files_[image_index_]);
+    ros::TimerEvent fake_event;
+    do_work(fake_event);
 
     timer_.start();
   }
